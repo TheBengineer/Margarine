@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import pathlib
@@ -82,11 +83,43 @@ def merge_and_delete(main_folder, duplicate_folder):
             print(f"    {file}")
 
 
+def load_comparison_matrix():
+    comparison_matrix = {}
+    if os.path.exists("comparison_matrix.json"):
+        with open("comparison_matrix.json", "r") as f:
+            comparison_matrix = json.load(f)
+    return comparison_matrix
+
+
+def build_comparison_matrix(folder_to_scan):
+    comparison_matrix = load_comparison_matrix()
+    print(f"Loaded {len(comparison_matrix)} entries from exising comparison matrix")
+    scanned_files = 0
+    scanned_bytes = 0
+    for top, folders, files in os.walk(folder_to_scan):
+        for file in files:
+            file_path = os.path.join(top, file)
+            with open(file_path, "r") as f:
+                file_size = os.path.getsize(file_path)
+                file_content = f.read()
+                fast_hash = hash(file_content)
+                if fast_hash not in comparison_matrix:
+                    comparison_matrix[fast_hash] = []
+                scanned_files += 1
+                scanned_bytes += file_size
+                if scanned_files % 10 == 0:
+                    print(f"Scanned {scanned_files} files, {scanned_bytes} bytes")
+                comparison_matrix[fast_hash] += [file_path]
+    with open("comparison_matrix.json", "w") as f:
+        json.dump(comparison_matrix, f, indent=1)
+
+
 def main():
     folder_lookup = {}
     scanned_folders = 0
-    to_scan = str(root_folder).replace("'","")
+    to_scan = str(root_folder).replace("'", "")
     print(f"Scanning {to_scan}")
+    build_comparison_matrix(to_scan)
     for top, folders, files_name in os.walk(to_scan):
         for folder in folders:
             folder_name = os.path.join(top, folder)
