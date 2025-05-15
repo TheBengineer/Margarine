@@ -143,7 +143,7 @@ def build_comparison_matrix(folder_to_scan):
         if checked_files - last_checked_files > 1000:
             print(f"Scanned {checked_files},{scanned_files} files, {scanned_bytes / 1_000_000_000.0:.3f}GB")
             last_checked_files = checked_files
-        if last_scanned_bytes - scanned_bytes > 100_000_000:
+        if scanned_bytes - last_scanned_bytes > 10_000_000_000:
             with open("comparison_matrix.json", "w") as f2:
                 json.dump(comparison_matrix, f2, indent=1)
             print(f"Saved comparison matrix to comparison_matrix.json")
