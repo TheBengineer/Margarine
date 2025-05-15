@@ -1,14 +1,12 @@
 import json
 import os
 import re
-import pathlib
 import subprocess
-from multiprocessing import Pool, cpu_count, freeze_support
+from multiprocessing import Pool, cpu_count
 import shutil
 from datetime import datetime
 
 root_folder = os.environ.get("MARGARINE_ROOT")
-print(root_folder)
 
 
 def delete_empty_folders(root):
@@ -93,6 +91,8 @@ def load_comparison_matrix():
 
 
 def scan_file(file_path):
+    if not os.path.isfile(file_path):
+        return f"File does not exist: {file_path}"
     time_create = os.path.getctime(file_path)
     time_modify = os.path.getmtime(file_path)
     file_size = os.path.getsize(file_path)
@@ -101,35 +101,65 @@ def scan_file(file_path):
             bytes = f.read()
             fast_hash = f"{hash(bytes):x}"
         except Exception as e:
-            print(f"Error reading {file_path}")
-            return None
+            return f"Error reading {file_path}"
     return [fast_hash, file_path, file_size, time_create, time_modify]
 
 
 def build_comparison_matrix(folder_to_scan):
     comparison_matrix = load_comparison_matrix()
     scanned_files = len(comparison_matrix)
-    scanned_bytes = sum([comparison_matrix[key][1] for key in comparison_matrix])
-    files_to_ignore = [comparison_matrix[key][0] for key in comparison_matrix]
+    checked_files = 0
+    scanned_bytes = 0
+    last_checked_files = 0
+    last_scanned_bytes = 0
+    files_to_ignore = set()
+    for key in comparison_matrix:
+        for file_path, file_size, time_create, time_modify in comparison_matrix[key]:
+            scanned_bytes += file_size
+            files_to_ignore.add(file_path)
+
     print(
-        f"Loaded {len(comparison_matrix)}, {scanned_bytes / 1_000_000_000:0.3}GB entries from exising comparison matrix")
+        f"Loaded {len(comparison_matrix)}, {scanned_bytes / 1_000_000_000.0:.3f}GB entries from exising comparison matrix")
     num_cores = cpu_count()
     pool = Pool(num_cores)
     print(f"Started {num_cores} worker processes")
     for top, folders, files in os.walk(folder_to_scan):
-        files_to_scan = [os.path.join(top,file) for file in files if os.path.join(top, file) not in files_to_ignore]
+        filenames = [os.path.join(top, file) for file in files]
+        checked_files += len(filenames)
+        files_to_scan = [file for file in filenames if file not in files_to_ignore]
         results = pool.map(scan_file, files_to_scan)
-        results = [result for result in results if result is not None]
-        for fast_hash, file_path, file_size, time_create, time_modify in results:
+        filtered_results = []
+        for result in results:
+            if isinstance(result, list):
+                filtered_results += [result]
+            else:
+                print(f"Error: {result}")
+        for fast_hash, file_path, file_size, time_create, time_modify in filtered_results:
             if fast_hash not in comparison_matrix:
                 comparison_matrix[fast_hash] = []
-                comparison_matrix[fast_hash] += [[file_path, file_size, time_create, time_modify]]
-                scanned_files += 1
-                scanned_bytes += file_size
-                if scanned_files % 100 == 0:
-                    print(f"Scanned {scanned_files} files, {scanned_bytes / 1_000_000_000:0.3}GB")
-                    with open("comparison_matrix.json", "w") as f2:
-                        json.dump(comparison_matrix, f2, indent=1)
+            comparison_matrix[fast_hash] += [[file_path, file_size, time_create, time_modify]]
+            scanned_files += 1
+            scanned_bytes += file_size
+        if checked_files - last_checked_files > 1000:
+            print(f"Scanned {checked_files},{scanned_files} files, {scanned_bytes / 1_000_000_000.0:.3f}GB")
+            last_checked_files = checked_files
+        if last_scanned_bytes - scanned_bytes > 100_000_000:
+            with open("comparison_matrix.json", "w") as f2:
+                json.dump(comparison_matrix, f2, indent=1)
+            print(f"Saved comparison matrix to comparison_matrix.json")
+            last_scanned_bytes = scanned_bytes
+    with open("comparison_matrix.json", "w") as f2:
+        json.dump(comparison_matrix, f2, indent=1)
+    return comparison_matrix
+
+
+def cleanup_duplicate_files(comparison_matrix):
+    duplicate_files = []
+    for fast_hash, file_list in comparison_matrix.items():
+        if len(file_list) > 1:
+            for file_path, file_size, time_create, time_modify in file_list:
+                duplicate_files += [[fast_hash,file_path, file_size, time_create, time_modify]]
+    print(f"Found {len(duplicate_files)} duplicate files")
 
 
 def main():
@@ -137,7 +167,8 @@ def main():
     scanned_folders = 0
     to_scan = str(root_folder).replace("'", "")
     print(f"Scanning {to_scan}")
-    build_comparison_matrix(to_scan)
+    comparison_matrix = build_comparison_matrix(to_scan)
+    cleanup_duplicate_files(comparison_matrix)
     for top, folders, files_name in os.walk(to_scan):
         for folder in folders:
             folder_name = os.path.join(top, folder)
