@@ -5,6 +5,7 @@ import subprocess
 from multiprocessing import Pool, cpu_count
 import shutil
 from datetime import datetime
+import hashlib
 
 root_folder = os.environ.get("MARGARINE_ROOT")
 
@@ -98,8 +99,7 @@ def scan_file(file_path):
     file_size = os.path.getsize(file_path)
     with open(file_path, "rb") as f:
         try:
-            bytes = f.read()
-            fast_hash = f"{hash(bytes):x}"
+            fast_hash = hashlib.file_digest(f,"md5").hexdigest()
         except Exception as e:
             return f"Error reading {file_path}"
     return [fast_hash, file_path, file_size, time_create, time_modify]
@@ -155,10 +155,17 @@ def build_comparison_matrix(folder_to_scan):
 
 def cleanup_duplicate_files(comparison_matrix):
     duplicate_files = []
+    filenames = {}
     for fast_hash, file_list in comparison_matrix.items():
         if len(file_list) > 1:
             for file_path, file_size, time_create, time_modify in file_list:
-                duplicate_files += [[fast_hash,file_path, file_size, time_create, time_modify]]
+                duplicate_files += [[fast_hash, file_path, file_size, time_create, time_modify]]
+        for file_path, file_size, time_create, time_modify in file_list:
+            filename = os.path.basename(file_path)
+            if filename not in filenames:
+                filenames[filename] = 0
+            filenames[filename] += 1
+    duplicate_filenames = sorted(list(filenames.items()), key=lambda x:x[1], reverse=True)
     print(f"Found {len(duplicate_files)} duplicate files")
 
 
