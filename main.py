@@ -3,6 +3,7 @@ import os
 import re
 import pathlib
 import subprocess
+from multiprocessing import Pool, cpu_count, freeze_support
 import shutil
 from datetime import datetime
 
@@ -91,27 +92,44 @@ def load_comparison_matrix():
     return comparison_matrix
 
 
+def scan_file(file_path):
+    time_create = os.path.getctime(file_path)
+    time_modify = os.path.getmtime(file_path)
+    file_size = os.path.getsize(file_path)
+    with open(file_path, "rb") as f:
+        try:
+            bytes = f.read()
+            fast_hash = f"{hash(bytes):x}"
+        except Exception as e:
+            print(f"Error reading {file_path}")
+            return None
+    return [fast_hash, file_path, file_size, time_create, time_modify]
+
+
 def build_comparison_matrix(folder_to_scan):
     comparison_matrix = load_comparison_matrix()
-    print(f"Loaded {len(comparison_matrix)} entries from exising comparison matrix")
-    scanned_files = 0
-    scanned_bytes = 0
+    scanned_files = len(comparison_matrix)
+    scanned_bytes = sum([comparison_matrix[key][1] for key in comparison_matrix])
+    files_to_ignore = [comparison_matrix[key][0] for key in comparison_matrix]
+    print(
+        f"Loaded {len(comparison_matrix)}, {scanned_bytes / 1_000_000_000:0.3}GB entries from exising comparison matrix")
+    num_cores = cpu_count()
+    pool = Pool(num_cores)
+    print(f"Started {num_cores} worker processes")
     for top, folders, files in os.walk(folder_to_scan):
-        for file in files:
-            file_path = os.path.join(top, file)
-            with open(file_path, "r") as f:
-                file_size = os.path.getsize(file_path)
-                file_content = f.read()
-                fast_hash = hash(file_content)
-                if fast_hash not in comparison_matrix:
-                    comparison_matrix[fast_hash] = []
+        files_to_scan = [os.path.join(top,file) for file in files if os.path.join(top, file) not in files_to_ignore]
+        results = pool.map(scan_file, files_to_scan)
+        results = [result for result in results if result is not None]
+        for fast_hash, file_path, file_size, time_create, time_modify in results:
+            if fast_hash not in comparison_matrix:
+                comparison_matrix[fast_hash] = []
+                comparison_matrix[fast_hash] += [[file_path, file_size, time_create, time_modify]]
                 scanned_files += 1
                 scanned_bytes += file_size
-                if scanned_files % 10 == 0:
-                    print(f"Scanned {scanned_files} files, {scanned_bytes} bytes")
-                comparison_matrix[fast_hash] += [file_path]
-    with open("comparison_matrix.json", "w") as f:
-        json.dump(comparison_matrix, f, indent=1)
+                if scanned_files % 100 == 0:
+                    print(f"Scanned {scanned_files} files, {scanned_bytes / 1_000_000_000:0.3}GB")
+                    with open("comparison_matrix.json", "w") as f2:
+                        json.dump(comparison_matrix, f2, indent=1)
 
 
 def main():
