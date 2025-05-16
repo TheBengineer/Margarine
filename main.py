@@ -99,7 +99,7 @@ def scan_file(file_path):
     file_size = os.path.getsize(file_path)
     with open(file_path, "rb") as f:
         try:
-            fast_hash = hashlib.file_digest(f,"md5").hexdigest()
+            fast_hash = hashlib.file_digest(f, "md5").hexdigest()
         except Exception as e:
             return f"Error reading {file_path}"
     return [fast_hash, file_path, file_size, time_create, time_modify]
@@ -107,6 +107,10 @@ def scan_file(file_path):
 
 def build_comparison_matrix(folder_to_scan):
     comparison_matrix = load_comparison_matrix()
+    expected_files = set()
+    for key in comparison_matrix:
+        for file_path, file_size, time_create, time_modify in comparison_matrix[key]:
+            expected_files.add(file_path)
     scanned_files = len(comparison_matrix)
     checked_files = 0
     scanned_bytes = 0
@@ -117,14 +121,18 @@ def build_comparison_matrix(folder_to_scan):
         for file_path, file_size, time_create, time_modify in comparison_matrix[key]:
             scanned_bytes += file_size
             files_to_ignore.add(file_path)
-
-    print(
-        f"Loaded {len(comparison_matrix)}, {scanned_bytes / 1_000_000_000.0:.3f}GB entries from exising comparison matrix")
+    print(f"Loaded {len(expected_files)}, {scanned_bytes / 1_000_000_000.0:.3f}GB "
+          f"entries from exising comparison matrix")
     num_cores = cpu_count()
     pool = Pool(num_cores)
     print(f"Started {num_cores} worker processes")
     for top, folders, files in os.walk(folder_to_scan):
-        filenames = [os.path.join(top, file) for file in files]
+        filenames = []
+        for file in files:
+            filename = os.path.join(top, file)
+            filenames += [filename]
+            if filename in expected_files:
+                expected_files.remove(filename)
         checked_files += len(filenames)
         files_to_scan = [file for file in filenames if file not in files_to_ignore]
         results = pool.map(scan_file, files_to_scan)
@@ -148,6 +156,15 @@ def build_comparison_matrix(folder_to_scan):
                 json.dump(comparison_matrix, f2, indent=1)
             print(f"Saved comparison matrix to comparison_matrix.json")
             last_scanned_bytes = scanned_bytes
+    to_delete = []
+    for fast_hash in comparison_matrix:
+        comparison_matrix[fast_hash] = [file_data for file_data in comparison_matrix[fast_hash] if
+                                        file_data[0] not in expected_files]
+        if not comparison_matrix[fast_hash]:
+            to_delete += [fast_hash]
+    for fast_hash in to_delete:
+        del comparison_matrix[fast_hash]
+
     with open("comparison_matrix.json", "w") as f2:
         json.dump(comparison_matrix, f2, indent=1)
     return comparison_matrix
@@ -165,8 +182,30 @@ def cleanup_duplicate_files(comparison_matrix):
             if filename not in filenames:
                 filenames[filename] = 0
             filenames[filename] += 1
-    duplicate_filenames = sorted(list(filenames.items()), key=lambda x:x[1], reverse=True)
+    duplicate_filenames = sorted(list(filenames.items()), key=lambda x: x[1], reverse=True)
     print(f"Found {len(duplicate_files)} duplicate files")
+    duplicate_files_grouped = {}
+    for short_hash, file_path, file_size, time_create, time_modify in duplicate_files:
+        if short_hash not in duplicate_files_grouped:
+            duplicate_files_grouped[short_hash] = []
+        duplicate_files_grouped[short_hash] += [[file_path, file_size, time_create, time_modify]]
+    for short_hash in duplicate_files_grouped:
+        files = duplicate_files_grouped[short_hash]
+        for file in files:
+            if " (1)" in file[0]:
+                print()
+                for file2 in files:
+                    print(file2)
+                print(f"Removing {file[0]}")
+                os.remove(file[0])
+
+    for short_hash in duplicate_files_grouped:
+        files = duplicate_files_grouped[short_hash]
+        print(f"Opening {len(files)}")
+        for file in files:
+            print(f"Opening {file[0]}")
+            os.popen(rf'explorer /select,"{file[0]}"')
+        print()
 
 
 def main():
