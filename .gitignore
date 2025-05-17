@@ -1,2 +1,5 @@
 .idea/
 comparison_matrix.json
+/ignore_list.txt
+/ignore_macros.txt
+/auto_delete.txt

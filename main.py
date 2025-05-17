@@ -170,7 +170,43 @@ def build_comparison_matrix(folder_to_scan):
     return comparison_matrix
 
 
+def load_ignore_list():
+    ignore_list = set()
+    if os.path.exists("ignore_list.txt"):
+        with open("ignore_list.txt", "r") as f:
+            for line in f:
+                ignore_list.add(line.strip())
+    return ignore_list
+
+
+def load_ignore_macros():
+    ignore_list = set()
+    if os.path.exists("ignore_macros.txt"):
+        with open("ignore_macros.txt", "r") as f:
+            for line in f:
+                ignore_list.add(line.strip())
+    return ignore_list
+
+
+def load_auto_delete():
+    ignore_list = set()
+    if os.path.exists("auto_delete.txt"):
+        with open("auto_delete.txt", "r") as f:
+            for line in f:
+                ignore_list.add(line.strip())
+    return ignore_list
+
+
+def write_ignore_list(ignore_list):
+    with open("ignore_list.txt", "w") as f:
+        for line in ignore_list:
+            f.write(line + "\n")
+
+
 def cleanup_duplicate_files(comparison_matrix):
+    ignore_list = load_ignore_list()
+    ignore_macros = load_ignore_macros()
+    auto_delete = load_auto_delete()
     duplicate_files = []
     filenames = {}
     for fast_hash, file_list in comparison_matrix.items():
@@ -192,20 +228,33 @@ def cleanup_duplicate_files(comparison_matrix):
     for short_hash in duplicate_files_grouped:
         files = duplicate_files_grouped[short_hash]
         for file in files:
-            if " (1)" in file[0]:
-                print()
-                for file2 in files:
-                    print(file2)
-                print(f"Removing {file[0]}")
-                os.remove(file[0])
+            for macro in auto_delete:
+                if macro in file[0]:
+                    for file2 in files:
+                        print(file2)
+                    print(f"Removing {file[0]} because of rule: '{macro}'")
+                    os.remove(file[0])
+                    duplicate_files_grouped[short_hash].remove(file)
+            for ignore_macro in ignore_macros:
+                if ignore_macro in file[0]:
+                    print(f"Ignoring {file[0]}")
+                    ignore_list.add(file[0])
+                    duplicate_files_grouped[short_hash].remove(file)
+
+    write_ignore_list(ignore_list)
 
     for short_hash in duplicate_files_grouped:
         files = duplicate_files_grouped[short_hash]
+        if len(files) == 1:
+            continue
         print(f"Opening {len(files)}")
         for file in files:
             print(f"Opening {file[0]}")
             os.popen(rf'explorer /select,"{file[0]}"')
-        print()
+        print("Adding remaining files to ignore list")
+        for file in files:
+            ignore_list.add(file[0])
+        write_ignore_list(ignore_list)
 
 
 def main():
