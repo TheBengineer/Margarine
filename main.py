@@ -229,7 +229,9 @@ def cleanup_duplicate_files(comparison_matrix):
             duplicate_files_grouped[short_hash] = []
         duplicate_files_grouped[short_hash] += [[file_path, file_size, time_create, time_modify]]
     for short_hash in duplicate_files_grouped:
-        files = duplicate_files_grouped[short_hash]
+        files = duplicate_files_grouped[short_hash][:]
+        if len(files) < 2:
+            continue
         for file in files[:]:
             if "listro 004" in file[0]:
                 print()
@@ -246,6 +248,7 @@ def cleanup_duplicate_files(comparison_matrix):
                         print(f"Removing {file[0]} because of rule: '{macro}'")
                         os.remove(file[0])
                         duplicate_files_grouped[short_hash].remove(file)
+                        break
                 for ignore_macro in ignore_macros:
                     if ignore_macro in file[0]:
                         print(f"Ignoring {file[0]}")
