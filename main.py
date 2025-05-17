@@ -250,9 +250,11 @@ def cleanup_duplicate_files(comparison_matrix):
                     if ignore_macro in file[0]:
                         print(f"Ignoring {file[0]}")
                         ignore_list.add(file[0])
-
-
-
+            if file[0] in ignore_list:
+                try:
+                    duplicate_files_grouped[short_hash].remove(file)
+                except ValueError:
+                    pass
     write_ignore_list(ignore_list)
 
     for short_hash in duplicate_files_grouped:
